@@ -1,7 +1,8 @@
 import json
 from fractions import Fraction
-from . import plans, sources
+from . import plans, sources, velocities
 from .errors import RequestConflict
+from .models import database_id
 from .storage import connect, dumps, fetch_one, transaction
 
 
@@ -65,6 +66,28 @@ class Archive:
         from .settlement import execute_plan
         return execute_plan(self, plan_id, request_id, observer)
 
+    def put_velocity(self, name, source_revision, fields):
+        return velocities.put_velocity(self._connection, name, source_revision,
+                                       fields)
+
+    def execute_flux(self, plan_id, velocity_revision, request_id):
+        from .flux_settlement import execute_flux
+        return execute_flux(self, plan_id, velocity_revision, request_id)
+
+    def read_flux(self, result_id):
+        database_id(result_id)
+        velocity, plan, payload, request = fetch_one(
+            self._connection,
+            "SELECT f.velocity_id,f.plan_id,f.payload,c.request_id "
+            "FROM flux_results f JOIN flux_receipts c ON c.result_id=f.id "
+            "WHERE f.id=?", (result_id,), "flux result")
+        result = _decode(json.loads(payload))
+        result["id"] = result_id
+        result["receipt"] = {"request_id": request, "plan_id": plan,
+                             "velocity_revision": velocity,
+                             "result_id": result_id}
+        return result
+
     def read_result(self, result_id):
         plan, payload, request = fetch_one(
             self._connection,
@@ -92,6 +115,32 @@ class Archive:
         if row[0] != plan_id:
             raise RequestConflict("request ID already bound to another plan")
         return self.read_result(row[1])
+
+    def _flux_replay(self, request_id, plan_id, velocity_revision):
+        row = self._connection.execute(
+            "SELECT plan_id,velocity_id,result_id FROM flux_receipts "
+            "WHERE request_id=?", (request_id,)).fetchone()
+        if row is None:
+            return None
+        if row[0] != plan_id or row[1] != velocity_revision:
+            raise RequestConflict(
+                "request ID already bound to another flux execution")
+        return self.read_flux(row[2])
+
+    def _publish_flux(self, plan_id, velocity_revision, request_id, result):
+        with transaction(self._connection):
+            replay = self._flux_replay(request_id, plan_id, velocity_revision)
+            if replay is not None:
+                return replay
+            result_id = self._connection.execute(
+                "INSERT INTO flux_results(plan_id,velocity_id,payload) "
+                "VALUES(?,?,?)", (plan_id, velocity_revision,
+                                  dumps(_encode(result)))).lastrowid
+            self._connection.execute(
+                "INSERT INTO flux_receipts(request_id,plan_id,velocity_id,"
+                "result_id) VALUES(?,?,?,?)",
+                (request_id, plan_id, velocity_revision, result_id))
+        return self.read_flux(result_id)
 
     def _publish(self, plan_id, request_id, result):
         with transaction(self._connection):

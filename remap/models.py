@@ -18,6 +18,13 @@ def identifier(value):
     return value
 
 
+def database_id(value):
+    """A public database ID: a positive non-boolean integer."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValidationError("expected a positive integer database ID")
+    return value
+
+
 def vector(values):
     try:
         values = tuple(rational(x) for x in values)
@@ -69,6 +76,34 @@ def normalize_cell(cell):
     if len(vertices) != 4 or len(density) != 4:
         raise ValidationError("a cell needs four vertices and four density coefficients")
     return Cell(cell.id, vertices, density)
+
+
+def velocity_fields(value):
+    """Normalize a velocity dictionary to ``{cell_id: (comp, comp, comp)}``."""
+    if not isinstance(value, dict):
+        raise ValidationError("velocity fields must be a dictionary")
+    out = {}
+    for key, components in value.items():
+        identifier(key)
+        if key in out:
+            raise ValidationError("duplicate velocity field for " + key)
+        try:
+            components = tuple(components)
+        except TypeError as exc:
+            raise ValidationError("expected three velocity components") from exc
+        if len(components) != 3:
+            raise ValidationError("expected three velocity components")
+        normalized = []
+        for component in components:
+            try:
+                coefficients = tuple(rational(x) for x in component)
+            except TypeError as exc:
+                raise ValidationError("expected four velocity coefficients") from exc
+            if len(coefficients) != 4:
+                raise ValidationError("expected four velocity coefficients")
+            normalized.append(coefficients)
+        out[key] = tuple(normalized)
+    return out
 
 
 def normalize_target(target):

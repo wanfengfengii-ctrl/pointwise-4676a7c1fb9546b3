@@ -21,6 +21,17 @@ SCHEMA = (
     "CREATE TABLE IF NOT EXISTS receipts("
     "request_id TEXT PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES plans(id), "
     "result_id INTEGER NOT NULL UNIQUE REFERENCES results(id))",
+    "CREATE TABLE IF NOT EXISTS velocity_revisions("
+    "id INTEGER PRIMARY KEY, name TEXT NOT NULL, source_id INTEGER NOT NULL "
+    "REFERENCES source_revisions(id), payload TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS flux_results("
+    "id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES plans(id), "
+    "velocity_id INTEGER NOT NULL REFERENCES velocity_revisions(id), "
+    "payload TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS flux_receipts("
+    "request_id TEXT PRIMARY KEY, plan_id INTEGER NOT NULL REFERENCES plans(id), "
+    "velocity_id INTEGER NOT NULL REFERENCES velocity_revisions(id), "
+    "result_id INTEGER NOT NULL UNIQUE REFERENCES flux_results(id))",
 )
 
 

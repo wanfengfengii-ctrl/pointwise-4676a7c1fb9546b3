@@ -76,3 +76,30 @@ python3.11 -B demo.py
 完整回归覆盖独立解析积分、全局矩、顶点置换、穿顶点与沿棱共面裁剪、低维接触、细分合计、仿射多源结算、源和计划拒绝原子性、固定版本、返回值隔离、重开、请求重放和 CLI 子进程。失败回归采用真实进度回调异常与 SQLite 触发器拒绝写入，核对数据库中成果及回执行数，再核对重试。测试仅在自身临时目录创建库；demo 从有限样例真实登记、计划、执行、替换源并重开核对成果，打印新旧结果。运行清单见 .pointwise-runtime.json。
 
 代码职责：sources.py 管理源校验及版本，plans.py 管理目标校验及固定计划，geometry.py 提供几何量，settlement.py 积分与结算，archive.py 管理成果、回执和公开门面，storage.py 管理 SQLite 事务。
+
+## 固定计划逐面通量（新增）
+
+在原有质量接口之外，`remap.Archive` 增加：
+
+- `put_velocity(name, source_revision, fields) -> 场版本 ID`。`fields` 的键必须恰为该源版本的全部单元 ID，每个值为三个仿射分量，分量系数依次表示 `a+b*x+c*y+d*z`。同名登记只追加不可变版本，保存归一化后的副本。
+- `execute_flux(plan_id, velocity_revision, request_id) -> 成果字典`。计划与场必须绑定同一源版本；计算完成后在单个事务内发布成果与回执。
+- `read_flux(result_id) -> 独立副本`。通量请求与原质量请求使用独立命名空间，同号重放按计划与场版本核对，绑定不同即抛 `RequestConflict`。
+
+成果含 `id`、`plan_id`、`source_revision`、`target_revision`、`velocity_revision`、`receipt`，以及以下数组：
+
+- `faces`：每项 `{id,source,target,vertices,origins,moments,flux,mate}`。`vertices` 为不重复首点、沿交叠体外法向右手绕行的环；`origins.source_faces` 是支撑该片的源面（三个原顶点按坐标字典序排序），`origins.target_faces` 是本目标盒支撑面 `[target_id,axis,side]`，两类可同时非空。`moments` 恰含 `1,x,y,z,xx,xy,xz,yy,yz,zz` 十个键，每个值为 `(∫m·n_x dS, ∫m·n_y dS, ∫m·n_z dS)`；`moments["1"]` 即单位外法向的面积分（有向面积向量），不含根式。`flux` 为 `∫ rho·v·n dS` 的精确值，仿射×仿射按二次精确积分。
+- `exchanges`：每对内部公共片一项 `{source,a,b,a_face,b_face,flux}`，`a<b`，`flux` 取 a 侧外向通量；对应 b 侧为相反数。零通量的公共片同样保留。
+- `targets`：每个目标一项 `{target,net_outward}`，为该目标全部面通量之和（含内部交换）。
+- `source_ledger`：每个源一项 `{source,external_net}`，为该源全部未配对面通量之和。
+
+几何与结算不变量：
+
+1. **面证据重建**：每次执行都从不可变源/目标/场版本精确重建边界，不复用任何历史面或矩。源四面体与目标盒的交叠体若非正体积则不产生面记录；低维接触也不产生。
+2. **共面合并**：源面与目标面处于同一半空间时合并为一块物理片，`origins` 同时记录两类来源，但只保留一条记录、只积分一次。
+3. **公共面细分**：同一源内相邻目标（盒面贴合且法向相反）的公共区域按实际正面积交叠细分；公共区两侧得到方向相反、矩与通量精确相反的两条记录，`mate` 双向引用。未被任何邻接目标覆盖的余片 `mate=None`。
+4. **独立源**：不同源单元即使顶点与场相同也各自生成面记录，不共享、不配对。
+5. **结算自检**：发布前核对每片配对对称、同源面通量总和等于 `external_net`、每个交叠体边界闭合（面积和为零）且散度积分等于 `3*体积` 等恒等式；违反抛 `BalanceError`，不发布任何成果或回执。
+
+`verify_flux.py` 是独立解析核账器，不导入 `remap` 的任何几何代码：它用精确半空间枚举重建交叠体、用单纯形参数化与不同推导重算十个矩和通量、核对逐面覆盖与配对、散度积分、目标/源净账、顶点置换、低维接触、无覆盖目标与重开。`python3.11 -B verify_flux.py --check` 运行固定场景与确定性随机场景。
+
+演示：`python3.11 -B demo.py` 现在同时展示部分邻接、双来源面、二次积分与持久重开。

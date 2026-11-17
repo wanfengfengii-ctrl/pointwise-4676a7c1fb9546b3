@@ -5,12 +5,7 @@
   "verify": [
     "python3.11",
     "-B",
-    "-m",
-    "unittest",
-    "discover",
-    "-s",
-    "tests",
-    "-v"
+    "verify_all.py"
   ],
   "demo": [
     "python3.11",
