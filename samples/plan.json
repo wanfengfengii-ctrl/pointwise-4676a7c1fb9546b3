@@ -1,0 +1,11 @@
+{
+  "name": "western-half",
+  "source_revision": 1,
+  "targets": [
+    {
+      "id": "west",
+      "lower": [0, 0, 0],
+      "upper": ["1/2", 1, 1]
+    }
+  ]
+}
